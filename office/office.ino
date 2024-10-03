@@ -155,7 +155,7 @@ int getGMTOffset() {
 
 // Function to set time from NTP server
 void setRTCFromNTP() {
-    configTime(0, 0, ntpServer);  // Temporarily set GMT offset and daylight offset to 0
+    configTime(getGMTOffset(), 0, ntpServer);  // Set GMT offset, no daylight offset needed
     time_t nowTime = time(nullptr);
     int attempts = 0;
     while (nowTime < 8 * 3600 * 2 && attempts < 10) {  // Wait for time to be set
@@ -166,9 +166,6 @@ void setRTCFromNTP() {
     if (attempts >= 10) {
         Serial.println("Failed to obtain time from NTP");
     } else {
-        // Adjust time based on GMT offset and daylight saving time
-        int gmtOffset = getGMTOffset();
-        nowTime += gmtOffset;
         setTime(nowTime);  // Set time for TimeLib functions
         Serial.println("RTC updated from NTP");
     }
@@ -210,11 +207,6 @@ EventDetails fetchEventDetails(const char* homeAssistantURL) {
 
             details.startTime = parseDateTime(startTimeStr);
             details.endTime = parseDateTime(endTimeStr);
-
-            // Adjust event times for time zone
-            int gmtOffset = getGMTOffset();
-            details.startTime += gmtOffset;
-            details.endTime += gmtOffset;
 
             // Verify parsed times
             Serial.print("Parsed Start Time (timestamp): ");
