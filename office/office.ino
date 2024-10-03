@@ -357,18 +357,18 @@ void displayCalendarEvents() {
     display.setCursor(50, cursorY + 20);
 
     // Display BUSY!, FREE, or VERY BUSY!! based on ongoing events
-    if (ongoingEventsCount == 1) {
+    if (ongoingEventsCount == 0) {
         display.setTextColor(INKPLATE_GREEN);
         display.setCursor(75, cursorY + 160);
         display.print("FREE");
-    } else if (ongoingEventsCount == 0) {
-        display.setTextColor(INKPLATE_ORANGE);
+    } else if (ongoingEventsCount == 1) {
+        display.setTextColor(INKPLATE_YELLOW);
         display.setCursor(60, cursorY + 160);
-        display.print("BUSY!");
+        display.print("BUSY");
     } else {
         display.setTextColor(INKPLATE_RED);
-        display.setCursor(10, cursorY + 20);
-        display.print("VERY BUSY!!");
+        display.setCursor(60, cursorY + 160);
+        display.print("DND!");
     }
 
     // Reset to default font for other text
