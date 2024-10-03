@@ -353,16 +353,17 @@ void displayCalendarEvents() {
 
     // Set the font for the status message
     display.setFont(&FreeMonoBold24pt7b);
+    display.setTextSize(4);
     display.setCursor(50, cursorY + 20);
 
     // Display BUSY!, FREE, or VERY BUSY!! based on ongoing events
-    if (ongoingEventsCount == 0) {
+    if (ongoingEventsCount == 1) {
         display.setTextColor(INKPLATE_GREEN);
-        display.setCursor(10, cursorY + 20);
+        display.setCursor(75, cursorY + 160);
         display.print("FREE");
-    } else if (ongoingEventsCount == 1) {
-        display.setTextColor(INKPLATE_RED);
-        display.setCursor(10, cursorY + 20);
+    } else if (ongoingEventsCount == 0) {
+        display.setTextColor(INKPLATE_ORANGE);
+        display.setCursor(60, cursorY + 160);
         display.print("BUSY!");
     } else {
         display.setTextColor(INKPLATE_RED);
