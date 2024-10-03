@@ -33,6 +33,7 @@ struct EventDetails {
 };
 
 String lastRefreshTime;  // Store last refresh time
+time_t lastRefreshTimestamp; // Store the actual time of the last refresh
 
 // Function to format time to HH:MM AM/PM format
 String formatTime(time_t dateTime) {
@@ -242,11 +243,10 @@ bool isEventToday(time_t eventTime) {
            (year(eventTime) == year());
 }
 
-// Function to check if an event is during the refresh period
-bool isEventDuringRefresh(EventDetails event) {
+// Function to check if an event is ongoing
+bool isEventOngoing(EventDetails event) {
     time_t nowTime = now();  // Current time
-    time_t refreshPeriodEnd = nowTime + (15 * 60);  // 15 minutes ahead
-    return (event.startTime <= refreshPeriodEnd && event.endTime >= nowTime);
+    return (event.startTime <= nowTime && event.endTime >= nowTime);
 }
 
 // Function to sort events by start time
@@ -266,7 +266,9 @@ void sortEventsByStartTime(EventDetails arr[], int n) {
 void displayCalendarEvents() {
     display.clearDisplay();
 
-    time_t currentTime = now();  // Current time from RTC
+    // Store the current time as the "last refresh time"
+    lastRefreshTimestamp = now();  // Save the time when the calendar was refreshed
+    
     int cursorY = 70;
 
     // Print current date in the upper left corner
@@ -274,7 +276,7 @@ void displayCalendarEvents() {
     display.setTextColor(INKPLATE_BLACK);
     display.setTextSize(1);
     display.setCursor(10, 30);
-    display.print(formatDate(currentTime));
+    display.print(formatDate(lastRefreshTimestamp));
 
     const int MAX_EVENTS = 10;
     EventDetails events[MAX_EVENTS];
@@ -294,8 +296,8 @@ void displayCalendarEvents() {
 
         events[eventCount++] = eventDetails;
 
-        // Check if the event is during the refresh period
-        if (isEventDuringRefresh(eventDetails)) {
+        // Check if the event is ongoing
+        if (isEventOngoing(eventDetails)) {
             ongoingEventsCount++;
         }
     }
@@ -310,25 +312,23 @@ void displayCalendarEvents() {
     for (int i = 0; i < numEventsToShow; ++i) {
         EventDetails& event = events[i];
 
-        // Determine if the event is today
-        bool eventIsToday = isEventToday(event.startTime);
+        // Determine if the event is ongoing
+        bool eventIsOngoing = isEventOngoing(event);
 
         // Draw a large thick yellow horizontal line between today's events and future events
-        if (!eventIsToday && !lineDrawn) {
+        if (!isEventToday(event.startTime) && !lineDrawn) {
             int lineThickness = 10;  // Adjust the thickness as needed
             display.fillRect(0, cursorY - 20, display.width(), lineThickness, INKPLATE_YELLOW);
             lineDrawn = true;
             cursorY += 10;  // Adjust spacing after the line
         }
 
-        if (eventIsToday) {
-            if (i == 0) {
-                display.setTextColor(INKPLATE_GREEN);  // Next event today
-            } else {
-                display.setTextColor(INKPLATE_BLUE);   // Other events today
-            }
+        if (eventIsOngoing) {
+            display.setTextColor(INKPLATE_GREEN);  // Ongoing event
+        } else if (!isEventToday(event.startTime)) {
+            display.setTextColor(INKPLATE_ORANGE);   // Event on another day
         } else {
-            display.setTextColor(INKPLATE_ORANGE);     // Events not today
+            display.setTextColor(INKPLATE_BLUE);     // Future event today
         }
 
         display.setTextSize(1);
@@ -370,8 +370,7 @@ void displayCalendarEvents() {
     display.setTextSize(1);
     display.setTextColor(INKPLATE_BLACK);
     display.setCursor(10, display.height() - 20);
-    lastRefreshTime = formatTime(currentTime);
-    display.print("Last Refresh: " + lastRefreshTime);
+    display.print("Last Refresh: " + formatTime(lastRefreshTimestamp));  // Use the last refresh timestamp
 
     display.display();
 }
