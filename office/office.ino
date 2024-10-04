@@ -35,6 +35,16 @@ struct EventDetails {
 String lastRefreshTime;  // Store last refresh time
 time_t lastRefreshTimestamp; // Store the actual time of the last refresh
 
+
+// Function to convert UTC time to local time
+time_t convertToLocalTime(time_t utcTime) {
+    // Adjust GMT offset based on local time (e.g., EST/EDT with daylight saving)
+    // Example: Adjusting for Eastern Time
+    const long gmtOffset_sec = -14400;  // GMT-4 for Eastern Daylight Time (EDT)
+    return utcTime + gmtOffset_sec;  // Apply GMT offset to convert to local time
+}
+
+
 // Function to format time to HH:MM AM/PM format
 String formatTime(time_t dateTime) {
     char formattedTime[16];
@@ -206,8 +216,8 @@ EventDetails fetchEventDetails(const char* homeAssistantURL) {
                 details.message = "Busy";
             }
 
-            details.startTime = parseDateTime(startTimeStr);
-            details.endTime = parseDateTime(endTimeStr);
+            details.startTime = convertToLocalTime(parseDateTime(startTimeStr));
+            details.endTime = convertToLocalTime(parseDateTime(endTimeStr));
 
             // Verify parsed times
             Serial.print("Parsed Start Time (timestamp): ");
@@ -267,7 +277,7 @@ void displayCalendarEvents() {
     display.clearDisplay();
 
     // Store the current time as the "last refresh time"
-    lastRefreshTimestamp = now();  // Save the time when the calendar was refreshed
+    lastRefreshTimestamp = convertToLocalTime(now());  // Save the time when the calendar was refreshed
     
     int cursorY = 70;
 
@@ -354,7 +364,7 @@ void displayCalendarEvents() {
         display.setCursor(75, cursorY + 160);
         display.print("FREE");
     } else if (ongoingEventsCount == 1) {
-        display.setTextColor(INKPLATE_YELLOW);
+        display.setTextColor(INKPLATE_ORANGE);
         display.setCursor(60, cursorY + 160);
         display.print("BUSY");
     } else {
@@ -394,7 +404,7 @@ void setup() {
 
     displayCalendarEvents();  // Display calendar events
 
-    esp_sleep_enable_timer_wakeup(15 * 60 * 1000000);  // 15-minute sleep
+    esp_sleep_enable_timer_wakeup(60 * 1000000);  // 15-minute sleep
     esp_deep_sleep_start();
 }
 
