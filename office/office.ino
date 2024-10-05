@@ -1,5 +1,3 @@
-// office.ino
-
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -7,408 +5,264 @@
 #include <TimeLib.h>
 #include <WiFiUdp.h>
 #include <esp_sleep.h>
-// Removed <time.h> to prevent conflicts with TimeLib.h
 #include "config.h"  // Include your configuration header
 
-// Include fonts using relative paths
 #include "FreeMonoBold24pt7b.h"       // Font for status messages
 #include "FreeMonoBoldOblique12pt7b.h" // Font for event titles
 
 Inkplate display;
 WiFiUDP ntpUDP;
 const char* ntpServer = "pool.ntp.org";
+time_t lastRefreshTimestamp;
 
-// Time zone offset for Eastern Time (New York)
-// Eastern Standard Time (EST) is UTC-5 hours
-// Eastern Daylight Time (EDT) is UTC-4 hours
-// We'll need to handle daylight saving time
-
-// First, define EventDetails struct
-struct EventDetails {
-    String calendarName;
-    String message;
-    time_t startTime;
-    time_t endTime;
-    bool highlightRed = false;
-};
-
-String lastRefreshTime;  // Store last refresh time
-time_t lastRefreshTimestamp; // Store the actual time of the last refresh
-
-
-// Function to convert UTC time to local time
-time_t convertToLocalTime(time_t utcTime) {
-    // Adjust GMT offset based on local time (e.g., EST/EDT with daylight saving)
-    // Example: Adjusting for Eastern Time
-    const long gmtOffset_sec = -14400;  // GMT-4 for Eastern Daylight Time (EDT)
-    return utcTime + gmtOffset_sec;  // Apply GMT offset to convert to local time
-}
-
-
-// Function to format time to HH:MM AM/PM format
-String formatTime(time_t dateTime) {
-    char formattedTime[16];
-    int hr = hour(dateTime);
-    snprintf(formattedTime, sizeof(formattedTime), "%02d:%02d %s", (hr % 12 == 0) ? 12 : hr % 12, minute(dateTime), (hr >= 12) ? "PM" : "AM");
-    return String(formattedTime);
-}
-
-// Function to format date to MM/DD/YYYY format
-String formatDate(time_t dateTime) {
-    char formattedDate[16];
-    snprintf(formattedDate, sizeof(formattedDate), "%02d/%02d/%04d", month(dateTime), day(dateTime), year(dateTime));
-    return String(formattedDate);
-}
-
-// Function to format date and time for debugging
-String formatDateTime(time_t dateTime) {
-    char buffer[25];
-    snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:%02d:%02d",
-             year(dateTime), month(dateTime), day(dateTime),
-             hour(dateTime), minute(dateTime), second(dateTime));
-    return String(buffer);
-}
-
-// Function to parse a date-time string into a time_t
-time_t parseDateTime(const char* dateTimeStr) {
-    int yy, MM, dd, hh, mm, ss;
-    if (sscanf(dateTimeStr, "%d-%d-%d %d:%d:%d", &yy, &MM, &dd, &hh, &mm, &ss) == 6) {
-        tmElements_t tm;
-        tm.Year = CalendarYrToTm(yy);
-        tm.Month = MM;
-        tm.Day = dd;
-        tm.Hour = hh;
-        tm.Minute = mm;
-        tm.Second = ss;
-        return makeTime(tm);
-    } else {
-        Serial.println("Failed to parse date-time string");
-        return 0;
-    }
-}
-
-// Function to map calendar entity_id to human-readable name
-String getCalendarName(const char* homeAssistantURL) {
-    for (int i = 0; i < sizeof(calendarMap) / sizeof(calendarMap[0]); i++) {
-        if (String(homeAssistantURL) == calendarMap[i].url) {
-            return String(calendarMap[i].name);
-        }
-    }
-    return "Unknown Calendar";
-}
-
-// Function to truncate a long event title
-String truncateTitle(String title) {
-    if (title.length() > 30) {  // Assuming 30 characters fit on one line
-        return title.substring(0, 27) + "...";
-    }
-    return title;
-}
-
-// Function to reconnect WiFi on wake-up
-bool reconnectWiFi() {
-    WiFi.disconnect();
-    WiFi.begin(ssid, password);
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 10) {
-        delay(1000);
-        attempts++;
-    }
-    return WiFi.status() == WL_CONNECTED;
-}
-
-// Function to display error messages with large font in the upper left-hand corner
-void displayError(String errorMessage) {
-    display.clearDisplay();
-    display.setFont(&FreeMonoBold24pt7b);  // Use large bold font
-    display.setTextSize(1);  // Text size 1 with large font
-    display.setTextColor(INKPLATE_RED);
-    display.setCursor(10, 50);  // Upper left-hand corner
-    display.print(errorMessage);
-    display.display();
-}
-
-// Function to determine if daylight saving time is in effect
-bool isDST(int dayOfMonth, int month, int dayOfWeek) {
-    // DST starts on the second Sunday in March
-    // DST ends on the first Sunday in November
-
-    if (month < 3 || month > 11) return false;  // Not DST in Jan, Feb, Dec
-
-    if (month > 3 && month < 11) return true;   // DST in Apr - Oct
-
-    int previousSunday = dayOfMonth - dayOfWeek;
-
-    if (month == 3) {  // March
-        // DST starts at 2 am on the second Sunday in March
-        return previousSunday >= 8;
-    } else if (month == 11) {  // November
-        // DST ends at 2 am on the first Sunday in November
-        return previousSunday < 1;
-    }
-
-    return false;
-}
-
-int getGMTOffset() {
-    // Calculate the GMT offset based on whether DST is in effect
-    time_t nowTime = now();
-    int dayOfWeek = weekday(nowTime) - 1;  // TimeLib weekday() returns 1-7 for Sun-Sat
-    int dayOfMonth = day(nowTime);
-    int monthOfYear = month(nowTime);
-
-    if (isDST(dayOfMonth, monthOfYear, dayOfWeek)) {
-        return -4 * 3600;  // EDT is UTC-4
-    } else {
-        return -5 * 3600;  // EST is UTC-5
-    }
-}
-
-// Function to set time from NTP server
-void setRTCFromNTP() {
-    configTime(getGMTOffset(), 0, ntpServer);  // Set GMT offset, no daylight offset needed
+// Function to update RTC from NTP and handle synchronization failures
+bool setRTCFromNTP() {
+    configTime(0, 0, ntpServer);  // Sync time without timezone adjustments
+    delay(2000);  // Wait for 2 seconds to allow time to sync
     time_t nowTime = time(nullptr);
-    int attempts = 0;
-    while (nowTime < 8 * 3600 * 2 && attempts < 10) {  // Wait for time to be set
-        delay(500);
-        nowTime = time(nullptr);
-        attempts++;
+    int retryCount = 0;
+
+    // Retry loop for fetching time, up to 15 attempts
+    while (nowTime < 1609459200 && retryCount < 15) {  // Wait until the time is valid (greater than 01/01/2021)
+        delay(1000);
+        nowTime = time(nullptr);  // Get the current time
+        retryCount++;
+        Serial.print("Waiting for NTP time... Attempt: ");
+        Serial.println(retryCount);
     }
-    if (attempts >= 10) {
-        Serial.println("Failed to obtain time from NTP");
+
+    if (nowTime >= 1609459200) {
+        lastRefreshTimestamp = nowTime;
+        setTime(nowTime);  // Set the RTC to the correct time
+        Serial.println("NTP Time Sync Successful.");
+        return true;  // Time successfully fetched
+    }
+
+    Serial.println("NTP Time Sync Failed.");
+    return false;  // Time sync failed after retries
+}
+
+// Use RTC time as fallback when NTP sync fails
+void fallbackToRTCTime() {
+    time_t rtcTime = now();  // Use the RTC's time
+    if (rtcTime < 1609459200) {  // Check if RTC time is also invalid
+        Serial.println("RTC Time Invalid.");
     } else {
-        setTime(nowTime);  // Set time for TimeLib functions
-        Serial.println("RTC updated from NTP");
+        Serial.println("Using RTC time as fallback.");
+        lastRefreshTimestamp = rtcTime;  // Set the last refresh to the current RTC time
     }
 }
 
-// Function to fetch event details
-EventDetails fetchEventDetails(const char* homeAssistantURL) {
+// WiFi reconnection
+bool reconnectWiFi() {
+    WiFi.begin(ssid, password);  
+    int retries = 0;
+    while (WiFi.status() != WL_CONNECTED && retries < 10) {
+        delay(1000);
+        retries++;
+        Serial.println("Connecting to WiFi...");
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("WiFi Connected.");
+        return true;
+    } else {
+        Serial.println("WiFi Connection Failed.");
+        return false;
+    }
+}
+
+// Parse ISO8601 date string (format: "2024-10-04 11:00:00")
+// Since times are already in local time, we don't need to convert to UTC.
+time_t parseDateTime(String dateTime) {
+    struct tm tm;
+    if (strptime(dateTime.c_str(), "%Y-%m-%d %H:%M:%S", &tm)) {
+        return mktime(&tm);  // Keep the time in local time
+    }
+    return 0;  // Return 0 if parsing fails
+}
+
+// Fetch and parse calendar events from Home Assistant
+bool fetchCalendarEvent(const char* url, String& calendarName, String& message, time_t& startTime, time_t& endTime) {
     HTTPClient http;
-    http.setTimeout(15000);  // Set a timeout of 15 seconds
-    http.begin(homeAssistantURL);  
-    http.addHeader("Authorization", homeAssistantToken);  
-
-    Serial.print("Making HTTP GET request to: ");
-    Serial.println(homeAssistantURL);
-
+    http.begin(url);
+    http.addHeader("Authorization", homeAssistantToken);
     int httpCode = http.GET();
 
-    EventDetails details;
-
-    if (httpCode == 200) {
-        Serial.println("HTTP GET successful");
+    if (httpCode == HTTP_CODE_OK) {
         String payload = http.getString();
-        DynamicJsonDocument doc(2048);  // Adjust size based on response
-        DeserializationError error = deserializeJson(doc, payload);
+        DynamicJsonDocument doc(4096);  // Increased size to handle event data
+        deserializeJson(doc, payload);
 
-        if (!error) {
-            const char* startTimeStr = doc["attributes"]["start_time"].as<const char*>();
-            const char* endTimeStr = doc["attributes"]["end_time"].as<const char*>();
+        // Extract the relevant fields from the response
+        calendarName = doc["attributes"]["friendly_name"].as<String>();
+        message = doc["attributes"]["message"].as<String>();
+        String start = doc["attributes"]["start_time"].as<String>();
+        String end = doc["attributes"]["end_time"].as<String>();
 
-            Serial.print("Start Time String: ");
-            Serial.println(startTimeStr);
-            Serial.print("End Time String: ");
-            Serial.println(endTimeStr);
+        // Parse start and end times (no conversion needed since they are in local time)
+        startTime = parseDateTime(start);
+        endTime = parseDateTime(end);
 
-            details.message = doc["attributes"]["message"].as<const char*>();
-            if (details.message == "") {
-                details.message = "Busy";
-            }
-
-            details.startTime = convertToLocalTime(parseDateTime(startTimeStr));
-            details.endTime = convertToLocalTime(parseDateTime(endTimeStr));
-
-            // Verify parsed times
-            Serial.print("Parsed Start Time (timestamp): ");
-            Serial.println(details.startTime);
-            Serial.print("Parsed End Time (timestamp): ");
-            Serial.println(details.endTime);
-
-            Serial.print("Parsed Start Time (formatted): ");
-            Serial.println(formatDateTime(details.startTime));
-            Serial.print("Parsed End Time (formatted): ");
-            Serial.println(formatDateTime(details.endTime));
-
-        } else {
-            displayError("JSON Parse Error");
-            Serial.print("JSON Parse Error: ");
-            Serial.println(error.c_str());
-        }
+        return true;
     } else {
-        String errorString = http.errorToString(httpCode);
-        Serial.print("HTTP GET failed, error: ");
-        Serial.println(errorString);
-        displayError("API Error: " + errorString);
-    }
-
-    http.end();
-    return details;
-}
-
-// Function to check if an event is today
-bool isEventToday(time_t eventTime) {
-    return (day(eventTime) == day()) &&
-           (month(eventTime) == month()) &&
-           (year(eventTime) == year());
-}
-
-// Function to check if an event is ongoing
-bool isEventOngoing(EventDetails event) {
-    time_t nowTime = now();  // Current time
-    return (event.startTime <= nowTime && event.endTime >= nowTime);
-}
-
-// Function to sort events by start time
-void sortEventsByStartTime(EventDetails arr[], int n) {
-    for (int i = 0; i < n - 1; i++) {
-        for (int j = 0; j < n - i - 1; j++) {
-            if (arr[j].startTime > arr[j + 1].startTime) {
-                EventDetails temp = arr[j];
-                arr[j] = arr[j + 1];
-                arr[j + 1] = temp;
-            }
-        }
+        Serial.println("Error fetching event.");
+        return false;
     }
 }
 
-// Function to display calendar events
+// Display the current date at the top left in blue and underline it
+void displayCurrentDate() {
+    display.setFont(&FreeMonoBoldOblique12pt7b);  // Set the font for the date
+    display.setTextSize(2);
+    display.setTextColor(INKPLATE_BLUE);  // Display the date in blue
+    int dateY = 40;
+    display.setCursor(10, dateY);  // Position the date at the top left
+    time_t currentTime = now();
+
+    // Check if the time is valid before printing
+    if (currentTime < 1609459200) {  // If time is still invalid
+        display.print("Waiting for time...");
+        Serial.println("Time is not set correctly.");
+    } else {
+        // Format and display the local date
+        struct tm *localTimeInfo = localtime(&currentTime);
+        char dateBuffer[16];
+        strftime(dateBuffer, sizeof(dateBuffer), "%m/%d/%Y", localTimeInfo);  // Local date format MM/DD/YYYY
+        display.print(dateBuffer);
+        Serial.print("Current Date: ");
+        Serial.println(dateBuffer);
+
+        // Underline the date
+        int dateWidth = display.getCursorX() - 10;  // Calculate date width for underline
+        display.drawLine(10, dateY + 5, 10 + dateWidth, dateY + 5, INKPLATE_BLUE);
+    }
+}
+
+// Draw the bottom 1/3rd with the chosen color and expand it 10% upward
+void drawBottomThird(const char* status, uint16_t backgroundColor) {
+    int screenHeight = display.height();
+    int screenWidth = display.width();
+    
+    // Fill the bottom 1/3rd of the screen and expand the top by 10%
+    int boxHeight = screenHeight / 3 + (screenHeight / 10);
+    int boxY = screenHeight - boxHeight;
+
+    display.fillRect(0, boxY, screenWidth, boxHeight, backgroundColor);
+    
+    // Display white text for the status message starting from the bottom left and lowered by 15%
+    display.setTextColor(INKPLATE_WHITE);
+    display.setFont(&FreeMonoBold24pt7b);
+    display.setTextSize(4);
+    display.setCursor(10, screenHeight - (screenHeight / 7.5));  // Lowered by 15%
+    display.print(status);
+}
+
+// Display calendar events and status (FREE, BUSY, DND)
 void displayCalendarEvents() {
     display.clearDisplay();
 
-    // Store the current time as the "last refresh time"
-    lastRefreshTimestamp = convertToLocalTime(now());  // Save the time when the calendar was refreshed
+    // Display the current date at the top in blue with an underline
+    displayCurrentDate();
     
-    int cursorY = 70;
-
-    // Print current date in the upper left corner
-    display.setFont(&FreeMonoBold24pt7b);
-    display.setTextColor(INKPLATE_BLACK);
-    display.setTextSize(1);
-    display.setCursor(10, 30);
-    display.print(formatDate(lastRefreshTimestamp));
-
-    const int MAX_EVENTS = 10;
-    EventDetails events[MAX_EVENTS];
-    int eventCount = 0;
+    display.setFont(&FreeMonoBoldOblique12pt7b);  // Set font for event titles
+    display.setTextSize(1);  // Shrink the font size for event details
+    int cursorY = 80;  // Adjusted Y position to avoid overlapping with the date
     int ongoingEventsCount = 0;
+    time_t currentTime = now();  // Get the current time
+    time_t nextEventStartTime = 0;
+    int nextEventIndex = -1;
 
-    int numberOfURLs = sizeof(homeAssistantURLs) / sizeof(homeAssistantURLs[0]);
+    // Loop through the calendar events
+    for (int i = 0; i < 3; i++) {
+        String calendarName, message;
+        time_t startTime, endTime;
 
-    for (int i = 0; i < numberOfURLs && eventCount < MAX_EVENTS; i++) {
-        EventDetails eventDetails = fetchEventDetails(homeAssistantURLs[i]);
-        eventDetails.calendarName = getCalendarName(homeAssistantURLs[i]);
+        if (fetchCalendarEvent(calendarMap[i].url, calendarName, message, startTime, endTime)) {
+            // Determine the next event
+            if (startTime > currentTime && (nextEventStartTime == 0 || startTime < nextEventStartTime)) {
+                nextEventStartTime = startTime;
+                nextEventIndex = i;
+            }
 
-        if (eventDetails.startTime == 0 || eventDetails.endTime == 0) {
-            Serial.println("Invalid start or end time, skipping event");
-            continue;  // Skip events with invalid times
-        }
+            // Set the text color based on whether this is the next event or not
+            if (i == nextEventIndex) {
+                display.setTextColor(INKPLATE_GREEN);  // Next event in green
+            } else {
+                display.setTextColor(INKPLATE_BLACK);  // Other events in black
+            }
 
-        events[eventCount++] = eventDetails;
+            // Display the event
+            display.setCursor(10, cursorY);
+            display.print(String(calendarMap[i].name) + ": " + message);
+            cursorY += 20;
 
-        // Check if the event is ongoing
-        if (isEventOngoing(eventDetails)) {
-            ongoingEventsCount++;
+            // Display event times (no conversion needed since they're in local time)
+            display.setCursor(10, cursorY);
+            display.print(formatTime(startTime) + " - " + formatTime(endTime));
+            cursorY += 30;
+
+            // Check if the event is ongoing
+            if (currentTime >= startTime && currentTime <= endTime) {
+                ongoingEventsCount++;
+            }
         }
     }
 
-    // Sort events by start time
-    sortEventsByStartTime(events, eventCount);
-
-    int numEventsToShow = min(eventCount, 5);
-
-    bool lineDrawn = false;
-
-    for (int i = 0; i < numEventsToShow; ++i) {
-        EventDetails& event = events[i];
-
-        // Determine if the event is ongoing
-        bool eventIsOngoing = isEventOngoing(event);
-
-        // Draw a large thick yellow horizontal line between today's events and future events
-        if (!isEventToday(event.startTime) && !lineDrawn) {
-            int lineThickness = 10;  // Adjust the thickness as needed
-            display.fillRect(0, cursorY - 20, display.width(), lineThickness, INKPLATE_YELLOW);
-            lineDrawn = true;
-            cursorY += 10;  // Adjust spacing after the line
-        }
-
-        if (eventIsOngoing) {
-            display.setTextColor(INKPLATE_GREEN);  // Ongoing event
-        } else if (!isEventToday(event.startTime)) {
-            display.setTextColor(INKPLATE_ORANGE);   // Event on another day
-        } else {
-            display.setTextColor(INKPLATE_BLUE);     // Future event today
-        }
-
-        display.setTextSize(1);
-        display.setFont(&FreeMonoBoldOblique12pt7b);
-        display.setCursor(10, cursorY);
-        display.print(event.calendarName + ": " + truncateTitle(event.message));
-
-        cursorY += 20;
-        display.setCursor(10, cursorY);
-        display.print(formatTime(event.startTime) + " - " + formatTime(event.endTime));
-
-        cursorY += 30;  // Adjust spacing between events
-    }
-
-    // Set the font for the status message
-    display.setFont(&FreeMonoBold24pt7b);
-    display.setTextSize(4);
-    display.setCursor(50, cursorY + 20);
-
-    // Display BUSY!, FREE, or VERY BUSY!! based on ongoing events
+    // Determine status based on the number of ongoing events
     if (ongoingEventsCount == 0) {
-        display.setTextColor(INKPLATE_GREEN);
-        display.setCursor(75, cursorY + 160);
-        display.print("FREE");
+        drawBottomThird("FREE", INKPLATE_GREEN);  // No events, green background with white "FREE" text
     } else if (ongoingEventsCount == 1) {
-        display.setTextColor(INKPLATE_ORANGE);
-        display.setCursor(60, cursorY + 160);
-        display.print("BUSY");
+        drawBottomThird("BUSY", INKPLATE_ORANGE);  // One event, orange background with white "BUSY" text
     } else {
-        display.setTextColor(INKPLATE_RED);
-        display.setCursor(60, cursorY + 160);
-        display.print("DND!");
+        drawBottomThird("DND", INKPLATE_RED);  // Two or more events, red background with white "DND" text
     }
 
-    // Reset to default font for other text
+    // Display the last refresh time in black text at the very bottom
     display.setFont(NULL);
-
-    // Display last refresh time in small lettering on the lower left
     display.setTextSize(1);
     display.setTextColor(INKPLATE_BLACK);
     display.setCursor(10, display.height() - 20);
-    display.print("Last Refresh: " + formatTime(lastRefreshTimestamp));  // Use the last refresh timestamp
+    display.print("Last Refresh: " + formatTime(lastRefreshTimestamp));
 
     display.display();
+}
+
+// Format time to HH:MM AM/PM for display
+String formatTime(time_t time) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%02d:%02d %s", (hour(time) % 12) ? hour(time) % 12 : 12, minute(time), (hour(time) >= 12) ? "PM" : "AM");
+    return String(buf);
 }
 
 // Setup function
 void setup() {
-    Serial.begin(115200);
+    Serial.begin(115200);  // Make sure baud rate matches your serial monitor
     display.begin();
 
     if (!reconnectWiFi()) {
-        displayError("WiFi Error");
-        Serial.println("Failed to reconnect WiFi");
-        return;
+        display.clearDisplay();
+        display.setCursor(10, 50);
+        display.setFont(&FreeMonoBoldOblique12pt7b);
+        display.print("WiFi Error");
+        display.display();
+        fallbackToRTCTime();  // Use RTC time if WiFi fails
     } else {
-        Serial.println("WiFi connected successfully");
-        Serial.print("IP address: ");
-        Serial.println(WiFi.localIP());
+        if (!setRTCFromNTP()) {
+            display.clearDisplay();
+            display.setCursor(10, 50);
+            display.setFont(&FreeMonoBoldOblique12pt7b);
+            display.print("NTP Time Sync Failed");
+            display.display();
+            fallbackToRTCTime();  // Use RTC time if NTP fails
+        }
     }
 
-    setRTCFromNTP();  // Update RTC from NTP
+    displayCalendarEvents();
 
-    displayCalendarEvents();  // Display calendar events
-
-    esp_sleep_enable_timer_wakeup(60 * 1000000);  // 15-minute sleep
+    // Sleep for 15 minutes
+    esp_sleep_enable_timer_wakeup(15 * 60 * 1000000);  // 15 minutes
     esp_deep_sleep_start();
 }
 
-// Loop function (empty as the board sleeps)
-void loop() {
-    // Empty, as the ESP32 sleeps after setup
-}
+// Empty loop (device sleeps)
+void loop() {}
