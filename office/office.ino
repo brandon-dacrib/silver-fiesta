@@ -55,7 +55,7 @@ bool setRTCFromNTP() {
         Serial.println("NTP Time Sync Successful.");
         Serial.print("Raw time from NTP (UTC): ");
         Serial.println(nowTime);
-
+        
         // Display the UTC time
         struct tm timeinfo;
         gmtime_r(&nowTime, &timeinfo);
@@ -63,7 +63,9 @@ bool setRTCFromNTP() {
         strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S UTC", &timeinfo);
         Serial.print("UTC time after NTP sync: ");
         Serial.println(buffer);
-
+        time_t localTime = asctime (localtime (&nowTime));
+        Serial.print("Local time after NTP sync: ");
+        Serial.println(localTime);
         return true;  // Time successfully fetched
     }
 
@@ -196,10 +198,16 @@ bool fetchCalendarEvent(const char* url, String& calendarName, String& message, 
         Serial.println(start);
         Serial.print("End time string: ");
         Serial.println(end);
-
         // Parse start and end times
-        startTime = parseDateTime(start);
-        endTime = parseDateTime(end);
+        time_t StartTime = parseDateTime(start);
+        time_t EndTime = parseDateTime(end);
+
+        // Convert UTC time to local time
+        struct tm* localStartTimeInfo = localtime(&StartTime);
+        startTime = mktime(localStartTimeInfo);  // This converts tm struct back to time_t in local time
+
+        struct tm* localEndTimeInfo = localtime(&EndTime);
+        endTime = mktime(localEndTimeInfo);  // This converts tm struct back to time_t in local time
 
         return true;
     } else {
