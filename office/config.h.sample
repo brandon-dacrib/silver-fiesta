@@ -1,0 +1,25 @@
+// config.h
+
+// Wi-Fi Credentials
+const char* ssid = "WIFI_SSID";
+const char* password = "WIFI_PASSWORD";
+
+// Home Assistant Access Token
+const char* homeAssistantToken = "Bearer HOME_ASSISTANT_API_KEY";
+
+// Home Assistant URLs
+const char* homeAssistantURLs[] = {
+    "http://homeassistant-ip-and-port/api/states/calendar.demo_calendar0",
+    "http://homeassistant-ip-and-port/api/states/calendar.demo_calendar1"
+};
+
+// Calendar Mapping
+struct CalendarMap {
+    const char* url;
+    const char* name;
+};
+
+CalendarMap calendarMap[] = {
+    {"http://homeassistant-ip-and-port/api/states/calendar.demo_calendar0", "DemoName0"},
+    {"http://homeassistant-ip-and-port/api/states/calendar.demo_calendar1", "DemoName1"}
+};
