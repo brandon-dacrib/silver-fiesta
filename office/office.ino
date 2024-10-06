@@ -63,9 +63,10 @@ bool setRTCFromNTP() {
         strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S UTC", &timeinfo);
         Serial.print("UTC time after NTP sync: ");
         Serial.println(buffer);
-        time_t localTime = asctime (localtime (&nowTime));
+        struct tm *localTime = localtime (&nowTime);
+        char *timeString = asctime (localTime)
         Serial.print("Local time after NTP sync: ");
-        Serial.println(localTime);
+        Serial.println(timeString);
         return true;  // Time successfully fetched
     }
 
