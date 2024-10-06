@@ -6,7 +6,7 @@
 #include <esp_sleep.h>
 #include "config.h"  // Include your configuration header
 
-#include "FreeMonoBold24pt7b.h"       // Font for status messages
+#include "FreeMonoBold24pt7b.h"        // Font for status messages
 #include "FreeMonoBoldOblique12pt7b.h" // Font for event titles
 
 Inkplate display;
@@ -261,8 +261,14 @@ void drawBottomThird(const char* status, uint16_t backgroundColor) {
 
     display.fillRect(0, boxY, screenWidth, boxHeight, backgroundColor);
 
-    // Display white text for the status message starting from the bottom left and lowered by 15%
-    display.setTextColor(INKPLATE_WHITE);
+    // Set text color: black if background is yellow, else white
+    if (backgroundColor == INKPLATE_YELLOW) {
+        display.setTextColor(INKPLATE_BLACK);
+    } else {
+        display.setTextColor(INKPLATE_WHITE);
+    }
+
+    // Display the status message
     display.setFont(&FreeMonoBold24pt7b);
     display.setTextSize(4);
     display.setCursor(10, screenHeight - (screenHeight / 7.5));  // Lowered by 15%
@@ -380,14 +386,14 @@ void displayCalendarEvents() {
         drawBottomThird("FREE", INKPLATE_GREEN);  // No events, green background with white "FREE" text
         Serial.println("Current Status: FREE");
     } else if (ongoingEventsCount == 1) {
-        drawBottomThird("BUSY", INKPLATE_ORANGE);  // One event, orange background with white "BUSY" text
+        drawBottomThird("BUSY", INKPLATE_YELLOW);  // One event, yellow background with black "BUSY" text
         Serial.println("Current Status: BUSY");
     } else {
         drawBottomThird("FOCUS", INKPLATE_RED);  // Two or more events, red background with white "FOCUS" text
         Serial.println("Current Status: FOCUS");
     }
 
-    // Display the last refresh time in black text at the very bottom
+    // Display the last refresh time in white text at the very bottom
     display.setFont(NULL);
     display.setTextSize(1);
     display.setTextColor(INKPLATE_WHITE);
