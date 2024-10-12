@@ -293,8 +293,11 @@ void displayCalendarEvents() {
     time_t nextEventStartTime = 0;
     int nextEventIndex = -1;
 
+    // Determine the number of calendar elements in the array
+    int numCalendars = sizeof(calendarMap) / sizeof(calendarMap[0]);
+
     // Loop through the calendar events
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < numCalendars; i++) {
         String calendarName, message;
         time_t startTimeUTC, endTimeUTC;
 
