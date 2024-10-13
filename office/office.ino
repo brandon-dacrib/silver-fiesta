@@ -33,6 +33,44 @@ int getLocalTimeOffset(time_t timeInput) {
     }
 }
 
+// Function to calculate battery percentage based on voltage
+int getBatteryPercentage(float voltage) {
+    float minVoltage = 3.0;  // Define the minimum voltage
+    float maxVoltage = 4.2;  // Define the maximum voltage
+    int percentage = (int)((voltage - minVoltage) / (maxVoltage - minVoltage) * 100);
+
+    // Ensure the percentage is within bounds
+    if (percentage > 100) percentage = 100;
+    if (percentage < 0) percentage = 0;
+
+    return percentage;
+}
+
+// Function to display battery percentage in the lower right-hand corner
+void displayBatteryStatus() {
+    float batteryVoltage = display.readBattery();  // Read the battery voltage
+    int batteryPercentage = getBatteryPercentage(batteryVoltage);  // Calculate the percentage
+
+    // Display the battery percentage
+    //display.setFont(&FreeMonoBoldOblique12pt7b);
+    display.setTextSize(2);
+    display.setTextColor(INKPLATE_WHITE);
+
+    // Position in the lower right corner
+    int batTextX = 550;
+    int batTextY = 425;
+
+    // Print the battery percentage
+    display.setCursor(batTextX, batTextY);
+    display.print(String(batteryPercentage) + "%");
+
+    // Debugging output for voltage and percentage
+    Serial.print("Battery Voltage: ");
+    Serial.println(batteryVoltage);
+    Serial.print("Battery Percentage: ");
+    Serial.println(batteryPercentage);
+}
+
 // Function to update RTC from NTP and handle synchronization failures
 bool setRTCFromNTP() {
     Serial.println("Attempting to sync time with NTP...");
@@ -404,6 +442,9 @@ void displayCalendarEvents() {
     strftime(refreshBuffer, sizeof(refreshBuffer), "%Y-%m-%d %H:%M:%S", &refreshTimeInfo);
     Serial.print("Last Refresh Local Time: ");
     Serial.println(refreshBuffer);
+
+    // Display the battery status
+    displayBatteryStatus();
 
     display.display();
 }
